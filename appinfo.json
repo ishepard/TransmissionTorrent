@@ -1,10 +1,10 @@
 {
-  "uuid": "133215f0-cf20-4c05-997b-3c9be5a64e5b",
-  "shortName": "Pebble.js",
-  "longName": "Pebble.js",
+  "uuid": "5a3de317-b050-4140-aa37-c85f19c446eb",
+  "shortName": "Transmission",
+  "longName": "Transmission Torrent",
   "companyName": "Meiguro",
-  "versionCode": 1,
-  "versionLabel": "0.4",
+  "versionCode": 2,
+  "versionLabel": "2.0",
   "capabilities": [
     "configurable"
   ],
@@ -15,25 +15,45 @@
   "resources": {
     "media": [
       {
+        "file": "images/menu_icon.png",
         "menuIcon": true,
-        "type": "png",
         "name": "IMAGE_MENU_ICON",
-        "file": "images/menu_icon.png"
+        "type": "png"
       },
       {
-        "type": "png",
+        "file": "images/logo_splash.png",
         "name": "IMAGE_LOGO_SPLASH",
-        "file": "images/logo_splash.png"
+        "type": "png"
       },
       {
-        "type": "png",
+        "file": "images/tile_splash.png",
         "name": "IMAGE_TILE_SPLASH",
-        "file": "images/tile_splash.png"
+        "type": "png"
       },
       {
-        "type": "font",
+        "file": "fonts/UbuntuMono-Regular.ttf",
         "name": "MONO_FONT_14",
-        "file": "fonts/UbuntuMono-Regular.ttf"
+        "type": "font"
+      },
+      {
+        "file": "images/pause.png",
+        "name": "IMAGES_PAUSE_PNG",
+        "type": "png"
+      },
+      {
+        "file": "images/complete.png",
+        "name": "IMAGES_COMPLETE_PNG",
+        "type": "png"
+      },
+      {
+        "file": "images/arrow_download.png",
+        "name": "IMAGES_ARROW_DOWNLOAD_PNG",
+        "type": "png"
+      },
+      {
+        "file": "images/icon_check.png",
+        "name": "IMAGES_ICON_CHECK_PNG",
+        "type": "png"
       }
     ]
   },
