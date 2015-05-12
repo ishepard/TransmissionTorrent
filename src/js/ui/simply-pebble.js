@@ -2,6 +2,7 @@ var struct = require('struct');
 var util2 = require('util2');
 var myutil = require('myutil');
 var Wakeup = require('wakeup');
+var Timeline = require('timeline');
 var Resource = require('ui/resource');
 var Accel = require('ui/accel');
 var ImageService = require('ui/imageservice');
@@ -138,7 +139,7 @@ var colorMap = {
 };
 
 var Color = function(color) {
-  return colorMap[color] ? colorMap[color] : colorMap['clear'];
+  return colorMap[color] ? colorMap[color] : colorMap.clear;
 };
 
 var Font = function(x) {
@@ -253,6 +254,7 @@ var LaunchReasonTypes = [
   'wakeup',
   'worker',
   'quickLaunch',
+  'timelineAction'
 ];
 
 var LaunchReasonType = makeArrayType(LaunchReasonTypes);
@@ -283,6 +285,12 @@ var CardTextTypes = [
 ];
 
 var CardTextType = makeArrayType(CardTextTypes);
+
+var CardTextColorTypes = [
+  'titleColor',
+  'subtitleColor',
+  'bodyColor',
+];
 
 var CardImageTypes = [
   'icon',
@@ -334,6 +342,7 @@ var ReadyPacket = new struct([
 var LaunchReasonPacket = new struct([
   [Packet, 'packet'],
   ['uint32', 'reason', LaunchReasonType],
+  ['uint32', 'args'],
   ['uint32', 'time'],
   ['bool', 'isTimezone'],
 ]);
@@ -431,6 +440,7 @@ var CardClearPacket = new struct([
 var CardTextPacket = new struct([
   [Packet, 'packet'],
   ['uint8', 'index', CardTextType],
+  ['uint8', 'color', Color],
   ['cstring', 'text'],
 ]);
 
@@ -925,8 +935,12 @@ SimplyPebble.cardClear = function(clear) {
   SimplyPebble.sendPacket(CardClearPacket.flags(toClearFlags(clear)));
 };
 
-SimplyPebble.cardText = function(field, text) {
-  SimplyPebble.sendPacket(CardTextPacket.index(field).text(text || ''));
+SimplyPebble.cardText = function(field, text, color) {
+  CardTextPacket
+    .index(field)
+    .color(color || 'black')
+    .text(text || '');
+  SimplyPebble.sendPacket(CardTextPacket);
 };
 
 SimplyPebble.cardImage = function(field, image) {
@@ -949,8 +963,9 @@ SimplyPebble.card = function(def, clear, pushing) {
     SimplyPebble.windowActionBar(def.action);
   }
   for (var k in def) {
-    if (CardTextTypes.indexOf(k) !== -1) {
-      SimplyPebble.cardText(k, def[k]);
+    var textIndex = CardTextTypes.indexOf(k);
+    if (textIndex !== -1) {
+      SimplyPebble.cardText(k, def[k], def[CardTextColorTypes[textIndex]]);
     } else if (CardImageTypes.indexOf(k) !== -1) {
       SimplyPebble.cardImage(k, def[k]);
     } else if (k === 'style') {
@@ -1139,6 +1154,7 @@ var toArrayBuffer = function(array, length) {
 
 SimplyPebble.onLaunchReason = function(packet) {
   var reason = LaunchReasonTypes[packet.reason()];
+  var args = packet.args();
   var remoteTime = packet.time();
   var isTimezone = packet.isTimezone();
   if (isTimezone) {
@@ -1148,8 +1164,13 @@ SimplyPebble.onLaunchReason = function(packet) {
     var resolution = 60 * 30;
     state.timeOffset = Math.round((remoteTime - time) / resolution) * resolution;
   }
+  if (reason === 'timelineAction') {
+    Timeline.emitAction(args);
+  } else {
+    Timeline.emitAction();
+  }
   if (reason !== 'wakeup') {
-    Wakeup.emitWakeup('noWakeup', 0);
+    Wakeup.emitWakeup();
   }
 };
 

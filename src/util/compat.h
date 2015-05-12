@@ -1,12 +1,14 @@
 #pragma once
 
+#include <pebble.h>
+
 /**
  * aplite and SDK 2.9 compatibility utilities
  * These are a collection of types and compatibility macros taken from SDK 3.0.
  * When possible, they are copied directly without modification.
  */
 
-// Compatibility definitions for 2.9
+// Compatibility definitions for aplite on 2.9
 #if !defined(PBL_PLATFORM_APLITE) && !defined(PBL_PLATFORM_BASALT)
 
 #define PBL_SDK_2
@@ -20,18 +22,23 @@ typedef enum GBitmapFormat {
   GBitmapFormat4BitPalette,
 } GBitmapFormat;
 
-#define GBITMAP_NATIVE_FORMAT GBitmapFormat1Bit
-
 static inline GBitmap *gbitmap_create_blank_with_format(GSize size, GBitmapFormat format) {
   return gbitmap_create_blank(size);
 }
 
 #define gbitmap_create_blank gbitmap_create_blank_with_format
 
+#define launch_get_args() ((uint32_t)0)
+
 #endif
 
-// Compatibility definitions for aplite on 3.0
+// Compatibility definitions for aplite on all versions
 #ifndef PBL_COLOR
+
+#define GBitmapFormat8Bit         1
+#define GBitmapFormat1BitPalette  2
+#define GBitmapFormat2BitPalette  3
+#define GBitmapFormat4BitPalette  4
 
 #define GColorWhiteARGB8 ((uint8_t)0b11111111)
 #define GColorBlackARGB8 ((uint8_t)0b11000000)
@@ -81,6 +88,15 @@ typedef union GColor8 {
   __gbitmap_tmp_bmp->is_heap_allocated = (fod); \
   __gbitmap_tmp_bmp->row_size_bytes = (rsb); \
 })
+
+#ifndef gbitmap_get_palette
+#define gbitmap_get_palette(bitmap) NULL
+#endif
+
+#ifndef gbitmap_set_palette
+#define gbitmap_set_palette(bitmap, palette, free_on_destroy) \
+  ((void)(bitmap), (void)(palette), (void)(free_on_destroy))
+#endif
 
 
 //! Convenience macro to use SDK 3.0 function to set a `PropertyAnimation`'s
