@@ -135,30 +135,6 @@ detail_window.add(value_upload);
 detail_window.add(value_availability);
 detail_window.fullscreen = true;
 
-// ////////////////////////////////////////////////////////////////////////
-var protocol = "http";
-username = "transmission";
-password = "ingdottdott";
-base64_string = base64_encode(username + ":" + password);
-server = "shikataganai.no-ip.biz";
-port_number = 9092;
-URL = protocol + "://" + server + ":" + port_number + "/transmission/rpc/";
-
-if (Pebble.getTimelineToken){
-  console.log("You have a Pebble Timeline! I'm getting the token...");
-  Pebble.getTimelineToken(
-    function (token) {
-      timeline_token = token;
-      console.log('The timeline token is ' + token);
-      subscribe();
-    },
-    function (error) { 
-      console.log('Error getting timeline token: ' + error);
-    }
-  );
-}
-// ///////////////////////////////////////////////////////////////////////
-
 function connect_to_transmission(){
   var request = { "arguments": { "fields": [ "id", "name", "percentDone", "status", "rateDownload", "rateUpload", "eta", "doneDate", "hashString"] }, "method": "torrent-get", "tag": 39693 };
   var authorization = 'Basic ' + base64_string;
