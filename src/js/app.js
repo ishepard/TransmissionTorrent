@@ -135,8 +135,7 @@ detail_window.add(value_upload);
 detail_window.add(value_availability);
 detail_window.fullscreen = true;
 
-
-////////////////////////////////////////////////////////////////////////
+// ////////////////////////////////////////////////////////////////////////
 var protocol = "http";
 username = "transmission";
 password = "ingdottdott";
@@ -158,8 +157,7 @@ if (Pebble.getTimelineToken){
     }
   );
 }
-///////////////////////////////////////////////////////////////////////
-
+// ///////////////////////////////////////////////////////////////////////
 
 function connect_to_transmission(){
   var request = { "arguments": { "fields": [ "id", "name", "percentDone", "status", "rateDownload", "rateUpload", "eta", "doneDate", "hashString"] }, "method": "torrent-get", "tag": 39693 };
@@ -440,8 +438,13 @@ Pebble.addEventListener('webviewclosed',
     password = configuration.password;
     base64_string = base64_encode(username + ":" + password);
     server = configuration.server;
-    port_number = configuration.port_number;
+    if (configuration.port_number === ""){
+      port_number = 9091;
+    } else {
+      port_number = configuration.port_number;
+    }
     URL = protocol + "://" + server + ":" + port_number + "/transmission/rpc/";
+    console.log("URL is " + URL);
     
     localStorage.setItem('username', username);
     localStorage.setItem('password', password);
