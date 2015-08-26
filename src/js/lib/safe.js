@@ -7,8 +7,6 @@
 
 /* global __loader */
 
-var ajax = require('ajax');
-
 var safe = {};
 
 /* The name of the concatenated file to translate */
@@ -28,31 +26,40 @@ safe.translatePos = function(name, lineno, colno) {
   return name + ':' + lineno + ':' + colno;
 };
 
-/* Translates a node style stack trace line */
-var translateLineV8 = function(line, msg, name, lineno, colno) {
-  var pos = safe.translatePos(name, lineno, colno);
-  return msg + '(' + pos + ')';
-};
-
 var makeTranslateStack = function(stackLineRegExp, translateLine) {
-  return function(stack) {
+  return function(stack, level) {
     var lines = stack.split('\n');
+    var firstStackLine = -1;
     for (var i = lines.length - 1; i >= 0; --i) {
-      var line = lines[i];
-      var m = line.match(stackLineRegExp);
-      if (m) {
-        line = lines[i] = translateLine.apply(this, m);
+      var m = lines[i].match(stackLineRegExp);
+      if (!m) {
+        continue;
       }
-      if (line.match(module.filename)) {
-        lines.splice(--i, 2);
+      var line = lines[i] = translateLine.apply(this, m);
+      if (line) {
+        firstStackLine = i;
+        if (line.indexOf(module.filename) !== -1) {
+          lines.splice(i, 1);
+        }
+      } else {
+        lines.splice(i, lines.length - i);
       }
     }
-    return lines.join('\n');
+    if (firstStackLine > -1) {
+      lines.splice(firstStackLine, level);
+    }
+    return lines;
   };
 };
 
-/* Matches <msg> '(' <name> ':' <lineno> ':' <colno> ')' */
-var stackLineRegExpV8 = /(.*)\(([^\s@:]+):(\d+):(\d+)\)/;
+/* Translates a node style stack trace line */
+var translateLineV8 = function(line, msg, scope, name, lineno, colno) {
+  var pos = safe.translatePos(name, lineno, colno);
+  return msg + (scope ? ' ' + scope + ' (' + pos + ')' : pos);
+};
+
+/* Matches <msg> (<scope> '(')? <name> ':' <lineno> ':' <colno> ')'? */
+var stackLineRegExpV8 = /(.+?)(?:\s+([^\s]+)\s+\()?([^\s@:]+):(\d+):(\d+)\)?/;
 
 safe.translateStackV8 = makeTranslateStack(stackLineRegExpV8, translateLineV8);
 
@@ -67,82 +74,84 @@ var stackLineRegExpIOS = /(?:([^\s@]+)@)?([^\s@:]+):(\d+):(\d+)/;
 
 safe.translateStackIOS = makeTranslateStack(stackLineRegExpIOS, translateLineIOS);
 
-safe.translateStackAndroid = function(stack) {
-  var lines = stack.split('\n');
-  for (var i = lines.length - 1; i > 0; --i) {
-    var line = lines[i];
-    var name, lineno, colno;
-    if (line.match(/jskit_startup\.html/)) {
-      lines.splice(i, 1);
-    } else {
-      var m = line.match(/^.*\/(.*?):(\d+):(\d+)/);
-      if (m) {
-        name = m[1];
-        lineno = m[2];
-        colno = m[3];
-      }
-    }
-    if (name) {
-      var pos = safe.translatePos(name, lineno, colno);
-      console.log(pos, name, lineno, colno);
-      if (line.match(/\(.*\)/)) {
-        line = line.replace(/\(.*\)/, '(' + pos + ')');
-      } else {
-        line = line.replace(/[^\s\/]*\/.*$/, pos);
-      }
-      lines[i] = line;
-    }
+/* Translates an Android stack trace line to node style */
+var translateLineAndroid = function(line, msg, scope, name, lineno, colno) {
+  if (name !== 'jskit_startup.js') {
+    return translateLineV8(line, msg, scope, name, lineno, colno);
   }
-  return lines.join('\n');
 };
+
+/* Matches <msg> <scope> '('? filepath <name> ':' <lineno> ':' <colno> ')'? */
+var stackLineRegExpAndroid = /^(.*?)(?:\s+([^\s]+)\s+\()?[^\s\(]*?([^\/]*?):(\d+):(\d+)\)?/;
+
+safe.translateStackAndroid = makeTranslateStack(stackLineRegExpAndroid, translateLineAndroid);
 
 /* Translates a stack trace to the originating files */
-safe.translateStack = function(stack) {
+safe.translateStack = function(stack, level) {
+  level = level || 0;
   if (Pebble.platform === 'pypkjs') {
-    return safe.translateStackV8(stack);
+    return safe.translateStackV8(stack, level);
   } else if (stack.match('com.getpebble.android')) {
-    return safe.translateStackAndroid(stack);
+    return safe.translateStackAndroid(stack, level);
   } else {
-    return safe.translateStackIOS(stack);
+    return safe.translateStackIOS(stack, level);
   }
 };
 
-safe.translateError = function(err) {
+var normalizeIndent = function(lines, pos) {
+  pos = pos || 0;
+  var label = lines[pos].match(/^[^\s]* /);
+  if (label) {
+    var indent = label[0].replace(/./g, ' ');
+    for (var i = pos + 1, ii = lines.length; i < ii; i++) {
+      lines[i] = lines[i].replace(/^\t/, indent);
+    }
+  }
+  return lines;
+};
+
+safe.translateError = function(err, intro, level) {
   var name = err.name;
   var message = err.message || err.toString();
   var stack = err.stack;
-  var result = ['JavaScript Error:'];
-  if (message && (!stack || !stack.match(message))) {
-    if (name && !message.match(message)) {
+  var result = [intro || 'JavaScript Error:'];
+  if (message && (!stack || stack.indexOf(message) === -1)) {
+    if (name && message.indexOf(name + ':') === -1) {
       message = name + ': ' + message;
     }
     result.push(message);
   }
   if (stack) {
-    result.push(safe.translateStack(stack));
+    Array.prototype.push.apply(result, safe.translateStack(stack, level));
   }
-  return result.join('\n');
+  return normalizeIndent(result, 1).join('\n');
 };
 
-/* We use this function to dump error messages to the console. */
-safe.dumpError = function(err) {
+/* Dumps error messages to the console. */
+safe.dumpError = function(err, intro, level) {
   if (typeof err === 'object') {
-      console.log(safe.translateError(err));
+    console.log(safe.translateError(err, intro, level));
   } else {
-    console.log('dumpError :: argument is not an object');
+    console.log('Error: dumpError argument is not an object');
   }
+};
+
+/* Logs runtime warnings to the console. */
+safe.warn = function(message, level, name) {
+  var err = new Error(message);
+  err.name = name || 'Warning';
+  safe.dumpError(err, 'Warning:', 1);
 };
 
 /* Takes a function and return a new function with a call to it wrapped in a try/catch statement */
 safe.protect = function(fn) {
-  return function() {
+  return fn ? function() {
     try {
-      return fn.apply(this, arguments);
-    }
-    catch (err) {
+      fn.apply(this, arguments);
+    } catch (err) {
       safe.dumpError(err);
     }
-  };
+  } : undefined;
 };
 
 /* Wrap event handlers added by Pebble.addEventListener */
@@ -159,16 +168,22 @@ Pebble.sendAppMessage = function(message, success, failure) {
 /* Wrap setTimeout and setInterval */
 var originalSetTimeout = setTimeout;
 window.setTimeout = function(callback, delay) {
+  if (safe.warnSetTimeoutNotFunction !== false && typeof callback !== 'function') {
+    safe.warn('setTimeout was called with a `' + (typeof callback) + '` type. ' +
+              'Did you mean to pass a function?');
+    safe.warnSetTimeoutNotFunction = false;
+  }
   return originalSetTimeout(safe.protect(callback), delay);
 };
+
 var originalSetInterval = setInterval;
 window.setInterval = function(callback, delay) {
+  if (safe.warnSetIntervalNotFunction !== false && typeof callback !== 'function') {
+    safe.warn('setInterval was called with a `' + (typeof callback) + '` type. ' +
+              'Did you mean to pass a function?');
+    safe.warnSetIntervalNotFunction = false;
+  }
   return originalSetInterval(safe.protect(callback), delay);
-};
-
-/* Wrap the success and failure callback of the ajax library */
-ajax.onHandler = function(eventName, callback) {
-  return safe.protect(callback);
 };
 
 /* Wrap the geolocation API Callbacks */
@@ -176,9 +191,24 @@ var watchPosition = navigator.geolocation.watchPosition;
 navigator.geolocation.watchPosition = function(success, error, options) {
   return watchPosition.call(this, safe.protect(success), safe.protect(error), options);
 };
+
 var getCurrentPosition = navigator.geolocation.getCurrentPosition;
 navigator.geolocation.getCurrentPosition = function(success, error, options) {
   return getCurrentPosition.call(this, safe.protect(success), safe.protect(error), options);
 };
+
+var ajax;
+
+/* Try to load the ajax library if available and silently fail if it is not found. */
+try {
+  ajax = require('ajax');
+} catch (err) {}
+
+/* Wrap the success and failure callback of the ajax library */
+if (ajax) {
+  ajax.onHandler = function(eventName, callback) {
+    return safe.protect(callback);
+  };
+}
 
 module.exports = safe;

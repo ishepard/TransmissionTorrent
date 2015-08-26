@@ -101,7 +101,7 @@ def concat_javascript(ctx, js_path=None):
                 import coffeescript
             except ImportError:
                 ctx.fatal("""
-    Coffeescript file '%s' found but coffeescript module isn't installed.
+    CoffeeScript file '%s' found, but coffeescript module isn't installed.
     You may try `pip install coffeescript` or `easy_install coffeescript`.
                 """ % (relpath))
             body = coffeescript.compile(body)
@@ -128,8 +128,6 @@ def concat_javascript(ctx, js_path=None):
 
                 if relpath == LOADER_PATH:
                     sources.insert(0, body)
-                elif relpath.startswith('vendor/'):
-                    sources.append(body)
                 else:
                     sources.append({ 'relpath': relpath, 'body': body })
 
