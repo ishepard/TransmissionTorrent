@@ -246,6 +246,7 @@ static void layer_update_callback(Layer *layer, GContext *ctx) {
       .origin = { margin_x, title_pos.y + image_offset_y },
       .size = { title_icon_bounds.size.w, title_size.h }
     };
+    graphics_context_set_alpha_blended(ctx, true);
     graphics_draw_bitmap_centered(ctx, title_icon->bitmap, icon_frame);
   }
   if (has_title) {
@@ -260,6 +261,7 @@ static void layer_update_callback(Layer *layer, GContext *ctx) {
       .origin = { margin_x, subtitle_pos.y + image_offset_y },
       .size = { subtitle_icon_bounds.size.w, subtitle_size.h }
     };
+    graphics_context_set_alpha_blended(ctx, true);
     graphics_draw_bitmap_centered(ctx, subtitle_icon->bitmap, subicon_frame);
   }
   if (has_subtitle) {
@@ -274,6 +276,7 @@ static void layer_update_callback(Layer *layer, GContext *ctx) {
       .origin = { 0, image_pos.y + image_offset_y },
       .size = { window_frame.size.w, body_image_bounds.size.h }
     };
+    graphics_context_set_alpha_blended(ctx, true);
     graphics_draw_bitmap_centered(ctx, body_image->bitmap, image_frame);
   }
   if (has_body) {
@@ -305,7 +308,6 @@ static void window_load(Window *window) {
   *(void**) layer_get_data(layer) = self;
   layer_set_update_proc(layer, layer_update_callback);
   scroll_layer_add_child(self->window.scroll_layer, layer);
-  scroll_layer_set_click_config_onto_window(self->window.scroll_layer, window);
 
   simply_ui_set_style(self, 1);
 }
@@ -317,9 +319,9 @@ static void window_appear(Window *window) {
 
 static void window_disappear(Window *window) {
   SimplyUi *self = window_get_user_data(window);
-  simply_window_disappear(&self->window);
-
-  simply_res_clear(self->window.simply->res);
+  if (simply_window_disappear(&self->window)) {
+    simply_res_clear(self->window.simply->res);
+  }
 }
 
 static void window_unload(Window *window) {
@@ -343,7 +345,9 @@ static void handle_card_text_packet(Simply *simply, Packet *data) {
     return;
   }
   simply_ui_set_text(simply->ui, textfield_id, packet->text);
-  simply_ui_set_text_color(simply->ui, textfield_id, packet->color);
+  if (!gcolor8_equal(packet->color, GColor8ClearWhite)) {
+    simply_ui_set_text_color(simply->ui, textfield_id, packet->color);
+  }
 }
 
 static void handle_card_image_packet(Simply *simply, Packet *data) {

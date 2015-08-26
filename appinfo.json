@@ -2,9 +2,9 @@
   "uuid": "5a3de317-b050-4140-aa37-c85f19c446eb",
   "shortName": "Transmission",
   "longName": "Transmission Torrent",
-  "companyName": "Meiguro",
-  "versionCode": 2.2,
-  "versionLabel": "2.2",
+  "companyName": "Shikataganai",
+  "versionCode": 2.4,
+  "versionLabel": "2.4",
   "capabilities": [
     "configurable"
   ],

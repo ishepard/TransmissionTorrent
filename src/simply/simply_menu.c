@@ -6,6 +6,7 @@
 
 #include "simply.h"
 
+#include "util/color.h"
 #include "util/graphics.h"
 #include "util/menu_layer.h"
 #include "util/string.h"
@@ -14,9 +15,9 @@
 
 #define MAX_CACHED_SECTIONS 10
 
-#define MAX_CACHED_ITEMS 6
+#define MAX_CACHED_ITEMS 51
 
-#define REQUEST_DELAY_MS 10
+static const time_t SPINNER_MS = 66;
 
 typedef Packet MenuClearPacket;
 
@@ -33,6 +34,9 @@ struct __attribute__((__packed__)) MenuPropsPacket {
   Packet packet;
   uint16_t num_sections;
   GColor8 background_color;
+  GColor8 text_color;
+  GColor8 highlight_background_color;
+  GColor8 highlight_text_color;
 };
 
 typedef struct MenuSectionPacket MenuSectionPacket;
@@ -81,6 +85,8 @@ struct __attribute__((__packed__)) MenuSelectionPacket {
 static GColor8 s_normal_palette[] = { { GColorBlackARGB8 }, { GColorClearARGB8 } };
 static GColor8 s_inverted_palette[] = { { GColorWhiteARGB8 }, { GColorClearARGB8 } };
 
+static char EMPTY_TITLE[] = "";
+
 
 static void simply_menu_clear_section_items(SimplyMenu *self, int section_index);
 static void simply_menu_clear(SimplyMenu *self);
@@ -92,7 +98,15 @@ static void simply_menu_add_item(SimplyMenu *self, SimplyMenuItem *item);
 static MenuIndex simply_menu_get_selection(SimplyMenu *self);
 static void simply_menu_set_selection(SimplyMenu *self, MenuIndex menu_index, MenuRowAlign align, bool animated);
 
-static char EMPTY_TITLE[] = "";
+static void refresh_spinner_timer(SimplyMenu *self);
+
+
+static int64_t get_milliseconds(void) {
+  time_t now_s;
+  uint16_t now_ms_part;
+  time_ms(&now_s, &now_ms_part);
+  return ((int64_t) now_s) * 1000 + now_ms_part;
+}
 
 static bool send_menu_item(Command type, uint16_t section, uint16_t item) {
   MenuItemEventPacket packet = {
@@ -132,6 +146,11 @@ static bool item_filter(List1Node *node, void *data) {
   uint16_t section_index = cell_index;
   uint16_t row = cell_index >> 16;
   return (item->section == section_index && item->item == row);
+}
+
+static bool request_item_filter(List1Node *node, void *data) {
+  SimplyMenuItem *item = (SimplyMenuItem*) node;
+  return (item->title == NULL);
 }
 
 static SimplyMenuSection *get_menu_section(SimplyMenu *self, int index) {
@@ -223,26 +242,31 @@ static void request_menu_item(SimplyMenu *self, uint16_t section_index, uint16_t
 
 static void mark_dirty(SimplyMenu *self) {
   if (!self->menu_layer.menu_layer) { return; }
+  layer_mark_dirty(menu_layer_get_layer(self->menu_layer.menu_layer));
+}
+
+static void reload_data(SimplyMenu *self) {
+  if (!self->menu_layer.menu_layer) { return; }
   menu_layer_reload_data(self->menu_layer.menu_layer);
 }
 
-void simply_menu_set_num_sections(SimplyMenu *self, uint16_t num_sections) {
+static void simply_menu_set_num_sections(SimplyMenu *self, uint16_t num_sections) {
   if (num_sections == 0) {
     num_sections = 1;
   }
   self->menu_layer.num_sections = num_sections;
-  mark_dirty(self);
+  reload_data(self);
 }
 
-void simply_menu_add_section(SimplyMenu *self, SimplyMenuSection *section) {
+static void simply_menu_add_section(SimplyMenu *self, SimplyMenuSection *section) {
   if (section->title == NULL) {
     section->title = EMPTY_TITLE;
   }
   add_section(self, section);
-  mark_dirty(self);
+  reload_data(self);
 }
 
-void simply_menu_add_item(SimplyMenu *self, SimplyMenuItem *item) {
+static void simply_menu_add_item(SimplyMenu *self, SimplyMenuItem *item) {
   if (item->title == NULL) {
     item->title = EMPTY_TITLE;
   }
@@ -250,17 +274,38 @@ void simply_menu_add_item(SimplyMenu *self, SimplyMenuItem *item) {
   mark_dirty(self);
 }
 
-MenuIndex simply_menu_get_selection(SimplyMenu *self) {
+static MenuIndex simply_menu_get_selection(SimplyMenu *self) {
   return menu_layer_get_selected_index(self->menu_layer.menu_layer);
 }
 
-void simply_menu_set_selection(SimplyMenu *self, MenuIndex menu_index, MenuRowAlign align, bool animated) {
+static void simply_menu_set_selection(SimplyMenu *self, MenuIndex menu_index, MenuRowAlign align, bool animated) {
   menu_layer_set_selected_index(self->menu_layer.menu_layer, menu_index, align, animated);
 }
 
 static bool send_menu_selection(SimplyMenu *self) {
   MenuIndex menu_index = simply_menu_get_selection(self);
   return send_menu_item(CommandMenuSelectionEvent, menu_index.section, menu_index.row);
+}
+
+static void spinner_timer_callback(void *data) {
+  SimplyMenu *self = data;
+  self->spinner_timer = NULL;
+  mark_dirty(self);
+  refresh_spinner_timer(self);
+}
+
+static SimplyMenuItem *get_first_request_item(SimplyMenu *self) {
+  return (SimplyMenuItem*) list1_find(self->menu_layer.items, request_item_filter, NULL);
+}
+
+static SimplyMenuItem *get_last_request_item(SimplyMenu *self) {
+  return (SimplyMenuItem*) list1_find_last(self->menu_layer.items, request_item_filter, NULL);
+}
+
+static void refresh_spinner_timer(SimplyMenu *self) {
+  if (!self->spinner_timer && get_first_request_item(self)) {
+    self->spinner_timer = app_timer_register(SPINNER_MS, spinner_timer_callback, self);
+  }
 }
 
 static uint16_t menu_get_num_sections_callback(MenuLayer *menu_layer, void *data) {
@@ -280,7 +325,7 @@ static int16_t menu_get_header_height_callback(MenuLayer *menu_layer, uint16_t s
   return section && section->title && section->title != EMPTY_TITLE ? MENU_CELL_BASIC_HEADER_HEIGHT : 0;
 }
 
-static void menu_draw_header_callback(GContext* ctx, const Layer *cell_layer, uint16_t section_index, void *data) {
+static void menu_draw_header_callback(GContext *ctx, const Layer *cell_layer, uint16_t section_index, void *data) {
   SimplyMenu *self = data;
   SimplyMenuSection *section = get_menu_section(self, section_index);
   if (!section) {
@@ -294,7 +339,33 @@ static void menu_draw_header_callback(GContext* ctx, const Layer *cell_layer, ui
   menu_cell_basic_header_draw(ctx, cell_layer, section->title);
 }
 
-static void menu_draw_row_callback(GContext* ctx, const Layer *cell_layer, MenuIndex *cell_index, void *data) {
+static void simply_menu_draw_row_spinner(SimplyMenu *self, GContext *ctx, const Layer *cell_layer) {
+  GRect bounds = layer_get_bounds(cell_layer);
+  GPoint center = grect_center_point(&bounds);
+
+  const int16_t min_radius = 4 * bounds.size.h / 24;
+  const int16_t max_radius = 9 * bounds.size.h / 24;
+  const int16_t num_lines = 16;
+  const int16_t num_drawn_lines = 3;
+
+  const int64_t now_ms = get_milliseconds();
+  const uint32_t start_index = (now_ms / SPINNER_MS) % num_lines;
+
+  graphics_context_set_antialiased(ctx, true);
+
+  GColor8 stroke_color = menu_cell_layer_is_highlighted(cell_layer) ? self->menu_layer.highlight_foreground
+                                                                    : self->menu_layer.normal_foreground;
+  graphics_context_set_stroke_color(ctx, gcolor8_get_or(stroke_color, GColorBlack));
+
+  for (int16_t i = 0; i < num_drawn_lines; i++) {
+    const uint32_t angle = (i + start_index) * TRIG_MAX_ANGLE / num_lines;
+    GPoint a = gpoint_add(center, gpoint_polar(angle, min_radius));
+    GPoint b = gpoint_add(center, gpoint_polar(angle, max_radius));
+    graphics_draw_line(ctx, a, b);
+  }
+}
+
+static void menu_draw_row_callback(GContext *ctx, const Layer *cell_layer, MenuIndex *cell_index, void *data) {
   SimplyMenu *self = data;
   SimplyMenuSection *section = get_menu_section(self, cell_index->section);
   if (!section) {
@@ -308,6 +379,15 @@ static void menu_draw_row_callback(GContext* ctx, const Layer *cell_layer, MenuI
     return;
   }
 
+  if (item->title == NULL) {
+    SimplyMenuItem *last_request = get_last_request_item(self);
+    if (last_request == item) {
+      simply_menu_draw_row_spinner(self, ctx, cell_layer);
+      refresh_spinner_timer(self);
+    }
+    return;
+  }
+
   list1_remove(&self->menu_layer.items, &item->node);
   list1_prepend(&self->menu_layer.items, &item->node);
 
@@ -316,10 +396,8 @@ static void menu_draw_row_callback(GContext* ctx, const Layer *cell_layer, MenuI
 
   if (image && image->is_palette_black_and_white) {
     palette = gbitmap_get_palette(image->bitmap);
-    MenuIndex selected_index = menu_layer_get_selected_index(self->menu_layer.menu_layer);
-    const bool is_selected = (selected_index.section == cell_index->section &&
-                              selected_index.row == cell_index->row);
-    gbitmap_set_palette(image->bitmap, is_selected ? s_inverted_palette : s_normal_palette, false);
+    const bool is_highlighted = menu_cell_layer_is_highlighted(cell_layer);
+    gbitmap_set_palette(image->bitmap, is_highlighted ? s_inverted_palette : s_normal_palette, false);
   }
 
   graphics_context_set_alpha_blended(ctx, true);
@@ -383,10 +461,10 @@ static void window_appear(Window *window) {
 
 static void window_disappear(Window *window) {
   SimplyMenu *self = window_get_user_data(window);
-  simply_window_disappear(&self->window);
-
-  simply_res_clear(self->window.simply->res);
-  simply_menu_clear(self);
+  if (simply_window_disappear(&self->window)) {
+    simply_res_clear(self->window.simply->res);
+    simply_menu_clear(self);
+  }
 }
 
 static void window_unload(Window *window) {
@@ -398,7 +476,7 @@ static void window_unload(Window *window) {
   simply_window_unload(&self->window);
 }
 
-void simply_menu_clear_section_items(SimplyMenu *self, int section_index) {
+static void simply_menu_clear_section_items(SimplyMenu *self, int section_index) {
   SimplyMenuItem *item = NULL;
   do {
     item = (SimplyMenuItem*) list1_find(self->menu_layer.items, section_filter, (void*)(uintptr_t) section_index);
@@ -406,7 +484,7 @@ void simply_menu_clear_section_items(SimplyMenu *self, int section_index) {
   } while (item);
 }
 
-void simply_menu_clear(SimplyMenu *self) {
+static void simply_menu_clear(SimplyMenu *self) {
   while (self->menu_layer.sections) {
     destroy_section(self, (SimplyMenuSection*) self->menu_layer.sections);
   }
@@ -415,7 +493,7 @@ void simply_menu_clear(SimplyMenu *self) {
     destroy_item(self, (SimplyMenuItem*) self->menu_layer.items);
   }
 
-  mark_dirty(self);
+  reload_data(self);
 }
 
 static void handle_menu_clear_packet(Simply *simply, Packet *data) {
@@ -429,8 +507,28 @@ static void handle_menu_clear_section_packet(Simply *simply, Packet *data) {
 
 static void handle_menu_props_packet(Simply *simply, Packet *data) {
   MenuPropsPacket *packet = (MenuPropsPacket*) data;
-  simply_menu_set_num_sections(simply->menu, packet->num_sections);
-  window_set_background_color(simply->menu->window.window, gcolor8_get(packet->background_color));
+  SimplyMenu *self = simply->menu;
+
+  simply_menu_set_num_sections(self, packet->num_sections);
+  window_set_background_color(self->window.window, gcolor8_get_or(packet->background_color, GColorWhite));
+
+  if (!self->menu_layer.menu_layer) {
+    return;
+  }
+
+  self->menu_layer.normal_background = packet->background_color;
+  self->menu_layer.normal_foreground = packet->text_color;
+
+  self->menu_layer.highlight_background = packet->highlight_background_color;
+  self->menu_layer.highlight_foreground = packet->highlight_text_color;
+
+  menu_layer_set_normal_colors(simply->menu->menu_layer.menu_layer,
+                               gcolor8_get_or(self->menu_layer.normal_background, GColorWhite),
+                               gcolor8_get_or(self->menu_layer.normal_foreground, GColorBlack));
+
+  menu_layer_set_highlight_colors(simply->menu->menu_layer.menu_layer,
+                                  gcolor8_get_or(self->menu_layer.highlight_background, GColorBlack),
+                                  gcolor8_get_or(self->menu_layer.highlight_foreground, GColorWhite));
 }
 
 static void handle_menu_section_packet(Simply *simply, Packet *data) {
