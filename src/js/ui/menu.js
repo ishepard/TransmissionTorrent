@@ -357,4 +357,15 @@ Menu.emitSelect = function(type, sectionIndex, itemIndex) {
   menu._emitSelect(e);
 };
 
+Menu.prototype.deleteItem = function(sectionIndex, itemIndex) {
+  var section = this.state.sections[sectionIndex];
+  if (! section || ! section.items[itemIndex])
+    return;
+
+  section.items.splice(itemIndex, 1);
+
+  this._resolveSection({ sectionIndex: sectionIndex }, true);
+  return this;
+};
+
 module.exports = Menu;
